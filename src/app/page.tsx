@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, memo } from "react";
+import { useState, useEffect, useCallback, useMemo, memo, useRef } from "react";
 import { supabase, Review, UserModel } from "@/lib/supabase";
 import { aiModels, AIModel } from "@/data/models";
 import trendingModelsData from "@/data/trending_models.json";
@@ -71,6 +71,10 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [currentFilter, setCurrentFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [companySearch, setCompanySearch] = useState("");
+  const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [currentRating, setCurrentRating] = useState(0);
   const [currentDetailModelId, setCurrentDetailModelId] = useState<number | null>(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -130,10 +134,41 @@ export default function Home() {
     }
   };
 
-  useEffect(() => {
+useEffect(() => {
     loadData();
     checkAuth();
     setupScrollReveal();
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+      if (e.key === "/" && !e.metaKey && !e.ctrlKey) {
+        const activeTag = document.activeElement?.tagName;
+        if (activeTag !== "INPUT" && activeTag !== "TEXTAREA") {
+          e.preventDefault();
+          searchInputRef.current?.focus();
+        }
+      }
+      if (e.key === "Escape") {
+        setShowCompanyDropdown(false);
+      }
+    };
+    
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".company-dropdown-container")) {
+        setShowCompanyDropdown(false);
+      }
+    };
+    
+    window.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("click", handleClickOutside);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("click", handleClickOutside);
+    };
   }, []);
 
   const setupScrollReveal = () => {
@@ -162,6 +197,16 @@ export default function Home() {
     return Array.from(unique).sort();
   }, [allModels]);
 
+  const categories = useMemo(() => {
+    const unique = new Set(allModels.map((m) => m.category));
+    return Array.from(unique).sort();
+  }, [allModels]);
+
+  const filteredCompanies = useMemo(() => {
+    if (!companySearch) return companies;
+    return companies.filter((c) => c.toLowerCase().includes(companySearch.toLowerCase()));
+  }, [companies, companySearch]);
+
   const filteredModels = useMemo(() => {
     return allModels.filter((m) => {
       const searchLower = searchQuery.toLowerCase();
@@ -174,9 +219,12 @@ export default function Home() {
         currentFilter === "all" ||
         m.company === currentFilter ||
         (currentFilter === "open-source" && m.openSource);
-      return searchMatch && filterMatch;
+      const categoryMatch =
+        categoryFilter === "all" ||
+        m.category === categoryFilter;
+      return searchMatch && filterMatch && categoryMatch;
     });
-  }, [allModels, searchQuery, currentFilter]);
+  }, [allModels, searchQuery, currentFilter, categoryFilter]);
 
   const modelStatsMap = useMemo(() => {
     const map: Record<number, { count: number; avg: number }> = {};
@@ -492,51 +540,131 @@ export default function Home() {
         {/* Models */}
         <section id="models" className="py-16 md:py-32 relative">
           <div className="max-w-7xl mx-auto px-4 sm:px-6">
-            <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 sm:mb-12 reveal gap-4">
-              <div>
-                <p className="text-[#a8a49e] text-xs sm:text-sm tracking-widest uppercase mb-2 sm:mb-4">Model Database - Updated Feb 2026</p>
-                <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-light">Explore AI <span className="font-serif italic">Models</span></h2>
-              </div>
-              <div className="mt-4 md:mt-0 w-full md:w-auto">
-                <div className="search-container">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                  <input
-                    type="text"
-                    id="search-input"
-                    className="input-field w-full sm:w-64"
-                    placeholder="Search models..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
+            <div className="text-center mb-8 sm:mb-12 reveal">
+              <p className="text-[#a8a49e] text-xs sm:text-sm tracking-widest uppercase mb-2 sm:mb-4">Model Database - Updated Feb 2026</p>
+              <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-light">Explore AI <span className="font-serif italic">Models</span></h2>
+            </div>
+            
+            <div className="max-w-4xl mx-auto mb-8 reveal">
+              <div className="bg-[#141414] border border-[#2a2a2a] rounded-xl p-4 sm:p-6">
+                <div className="flex flex-col gap-4">
+                  <div className="relative">
+                    <div className="search-container text-lg">
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                      <input
+                        ref={searchInputRef}
+                        type="text"
+                        id="search-input"
+                        className="input-field w-full text-base sm:text-lg py-3"
+                        placeholder="Search models by name, company, or description..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                      />
+                    </div>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[#a8a49e] text-xs hidden sm:block border border-[#2a2a2a] rounded px-2 py-1">
+                      Press /
+                    </span>
+                  </div>
+                  
+                  <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+                    <div className="flex-1">
+                      <label className="text-[#a8a49e] text-xs uppercase tracking-wider mb-2 block">Category</label>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          className={`filter-tag text-xs sm:text-sm ${categoryFilter === "all" ? "active" : ""}`}
+                          onClick={() => setCategoryFilter("all")}
+                        >
+                          All
+                        </button>
+                        {categories.map((cat) => (
+                          <button
+                            key={cat}
+                            className={`filter-tag text-xs sm:text-sm ${categoryFilter === cat ? "active" : ""}`}
+                            onClick={() => setCategoryFilter(cat)}
+                          >
+                            {cat}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <div className="flex-1 company-dropdown-container">
+                      <label className="text-[#a8a49e] text-xs uppercase tracking-wider mb-2 block">Company</label>
+                      <div className="relative">
+                        <button
+                          className="w-full text-left px-4 py-2.5 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg text-sm flex items-center justify-between hover:border-[#3a3a3a] transition-colors"
+                          onClick={() => setShowCompanyDropdown(!showCompanyDropdown)}
+                        >
+                          <span className={currentFilter === "all" ? "text-[#a8a49e]" : ""}>
+                            {currentFilter === "all" ? "All Companies" : currentFilter === "open-source" ? "Open Source" : currentFilter}
+                          </span>
+                          <svg className={`w-4 h-4 text-[#a8a49e] transition-transform ${showCompanyDropdown ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                        
+                        {showCompanyDropdown && (
+                          <div className="absolute z-50 w-full mt-2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl max-h-80 overflow-hidden">
+                            <div className="p-2 border-b border-[#2a2a2a]">
+                              <input
+                                type="text"
+                                className="w-full px-3 py-2 bg-[#0a0a0a] border border-[#2a2a2a] rounded text-sm focus:border-[#f5f2eb] focus:outline-none"
+                                placeholder="Search companies..."
+                                value={companySearch}
+                                onChange={(e) => setCompanySearch(e.target.value)}
+                                autoFocus
+                              />
+                            </div>
+                            <div className="overflow-y-auto max-h-60">
+                              <button
+                                className="w-full text-left px-4 py-2 text-sm hover:bg-[#2a2a2a] transition-colors"
+                                onClick={() => {
+                                  setCurrentFilter("all");
+                                  setShowCompanyDropdown(false);
+                                  setCompanySearch("");
+                                }}
+                              >
+                                All Companies
+                              </button>
+                              <button
+                                className="w-full text-left px-4 py-2 text-sm hover:bg-[#2a2a2a] transition-colors"
+                                onClick={() => {
+                                  setCurrentFilter("open-source");
+                                  setShowCompanyDropdown(false);
+                                  setCompanySearch("");
+                                }}
+                              >
+                                Open Source
+                              </button>
+                              {filteredCompanies.map((company) => (
+                                <button
+                                  key={company}
+                                  className="w-full text-left px-4 py-2 text-sm hover:bg-[#2a2a2a] transition-colors"
+                                  onClick={() => {
+                                    setCurrentFilter(company);
+                                    setShowCompanyDropdown(false);
+                                    setCompanySearch("");
+                                  }}
+                                >
+                                  {company}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="text-[#a8a49e] text-sm">
+                    Showing {filteredModels.length} model{filteredModels.length !== 1 ? "s" : ""}
+                    {categoryFilter !== "all" && <span className="ml-1">in {categoryFilter}</span>}
+                    {currentFilter !== "all" && <span className="ml-1">from {currentFilter === "open-source" ? "Open Source" : currentFilter}</span>}
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="flex flex-wrap gap-2 sm:gap-3 mb-6 sm:mb-10 reveal overflow-x-auto pb-2">
-              <button
-                key="all"
-                className={`filter-tag text-xs sm:text-sm whitespace-nowrap ${currentFilter === "all" ? "active" : ""}`}
-                onClick={() => setCurrentFilter("all")}
-              >
-                All
-              </button>
-              <button
-                key="open-source"
-                className={`filter-tag text-xs sm:text-sm whitespace-nowrap ${currentFilter === "open-source" ? "active" : ""}`}
-                onClick={() => setCurrentFilter("open-source")}
-              >
-                Open Source
-              </button>
-              {companies.map((company) => (
-                <button
-                  key={company}
-                  className={`filter-tag text-xs sm:text-sm whitespace-nowrap ${currentFilter === company ? "active" : ""}`}
-                  onClick={() => setCurrentFilter(company)}
-                >
-                  {company}
-                </button>
-              ))}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {filteredModels.map((model, i) => (
