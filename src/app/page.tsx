@@ -43,6 +43,25 @@ interface IndexedModel {
   normalizedCompany: string;
   normalizedCategory: string;
   normalizedDescription: string;
+  nameTokens: string[];
+  companyTokens: string[];
+  categoryTokens: string[];
+  descriptionTokens: string[];
+  nameInitialism: string;
+  companyInitialism: string;
+}
+
+interface SearchScore {
+  score: number;
+  matchedTokens: number;
+  coverage: number;
+  exactLike: boolean;
+}
+
+interface SearchResultSet {
+  models: AIModel[];
+  mode: "default" | "ranked" | "closest";
+  topMatch: AIModel | null;
 }
 
 const normalizeSearchValue = (value: string) =>
@@ -55,55 +74,189 @@ const normalizeSearchValue = (value: string) =>
 
 const getSearchTokens = (value: string) => normalizeSearchValue(value).split(/\s+/).filter(Boolean);
 
-const getSearchScore = (entry: IndexedModel, normalizedQuery: string, tokens: string[]) => {
-  if (!tokens.length) {
+const dedupeTokens = (tokens: string[]) => Array.from(new Set(tokens));
+
+const getInitialism = (tokens: string[]) => tokens.map((token) => token[0]).join("");
+
+const getAllowedTypos = (value: string) => {
+  if (value.length >= 7) {
+    return 2;
+  }
+  if (value.length >= 3) {
+    return 1;
+  }
+  return 0;
+};
+
+const isWithinEditDistance = (source: string, target: string, maxDistance: number) => {
+  if (maxDistance <= 0) {
+    return source === target;
+  }
+
+  const lengthDifference = Math.abs(source.length - target.length);
+  if (lengthDifference > maxDistance) {
+    return false;
+  }
+
+  let previousRow = Array.from({ length: target.length + 1 }, (_, index) => index);
+
+  for (let sourceIndex = 1; sourceIndex <= source.length; sourceIndex += 1) {
+    const currentRow = [sourceIndex];
+    let rowMinimum = currentRow[0];
+
+    for (let targetIndex = 1; targetIndex <= target.length; targetIndex += 1) {
+      const cost = source[sourceIndex - 1] === target[targetIndex - 1] ? 0 : 1;
+      const nextValue = Math.min(
+        previousRow[targetIndex] + 1,
+        currentRow[targetIndex - 1] + 1,
+        previousRow[targetIndex - 1] + cost
+      );
+      currentRow[targetIndex] = nextValue;
+      rowMinimum = Math.min(rowMinimum, nextValue);
+    }
+
+    if (rowMinimum > maxDistance) {
+      return false;
+    }
+
+    previousRow = currentRow;
+  }
+
+  return previousRow[target.length] <= maxDistance;
+};
+
+const getTokenFieldScore = (
+  token: string,
+  candidates: string[],
+  weights: { exact: number; prefix: number; contains: number; fuzzy: number }
+) => {
+  let bestScore = 0;
+  const allowedTypos = getAllowedTypos(token);
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+
+    if (candidate === token) {
+      return weights.exact;
+    }
+
+    if (candidate.startsWith(token) || token.startsWith(candidate)) {
+      bestScore = Math.max(bestScore, weights.prefix);
+      continue;
+    }
+
+    if (candidate.includes(token) || token.includes(candidate)) {
+      bestScore = Math.max(bestScore, weights.contains);
+      continue;
+    }
+
+    if (allowedTypos > 0 && isWithinEditDistance(token, candidate, allowedTypos)) {
+      bestScore = Math.max(bestScore, weights.fuzzy);
+    }
+  }
+
+  return bestScore;
+};
+
+const getInitialismScore = (
+  token: string,
+  initialism: string,
+  weights: { exact: number; prefix: number; fuzzy: number }
+) => {
+  if (!initialism || token.length < 2) {
     return 0;
   }
 
-  let score = 0;
-
-  for (const token of tokens) {
-    let tokenScore = 0;
-
-    if (entry.normalizedName === token) {
-      tokenScore = 160;
-    } else if (entry.normalizedName.startsWith(token)) {
-      tokenScore = 120;
-    } else if (entry.normalizedCompany === token) {
-      tokenScore = 100;
-    } else if (entry.normalizedCompany.startsWith(token)) {
-      tokenScore = 90;
-    } else if (entry.normalizedCategory === token) {
-      tokenScore = 80;
-    } else if (entry.normalizedName.includes(token)) {
-      tokenScore = 65;
-    } else if (entry.normalizedCompany.includes(token)) {
-      tokenScore = 55;
-    } else if (entry.normalizedCategory.includes(token)) {
-      tokenScore = 40;
-    } else if (entry.normalizedDescription.includes(token)) {
-      tokenScore = 25;
-    } else if (entry.searchText.includes(token)) {
-      tokenScore = 15;
-    } else {
-      return -1;
-    }
-
-    score += tokenScore;
+  if (initialism === token) {
+    return weights.exact;
   }
 
-  if (normalizedQuery) {
-    if (entry.normalizedName === normalizedQuery) {
-      score += 180;
-    } else if (entry.normalizedName.startsWith(normalizedQuery)) {
-      score += 100;
-    } else if (entry.normalizedCompany === normalizedQuery) {
-      score += 85;
-    } else if (entry.normalizedCompany.startsWith(normalizedQuery)) {
-      score += 70;
-    } else if (entry.searchText.includes(normalizedQuery)) {
-      score += 35;
+  if (initialism.startsWith(token) || token.startsWith(initialism)) {
+    return weights.prefix;
+  }
+
+  const allowedTypos = getAllowedTypos(token);
+  if (allowedTypos > 0 && isWithinEditDistance(token, initialism, allowedTypos)) {
+    return weights.fuzzy;
+  }
+
+  return 0;
+};
+
+const getSearchScore = (entry: IndexedModel, normalizedQuery: string, tokens: string[]): SearchScore => {
+  if (!tokens.length) {
+    return {
+      score: 0,
+      matchedTokens: 0,
+      coverage: 1,
+      exactLike: false,
+    };
+  }
+
+  let score = 0;
+  let matchedTokens = 0;
+  let fuzzyMatches = 0;
+  let exactLike = false;
+  const compactQuery = normalizedQuery.replace(/\s+/g, "");
+
+  for (const token of tokens) {
+    const tokenScore = Math.max(
+      getTokenFieldScore(token, entry.nameTokens, { exact: 160, prefix: 128, contains: 96, fuzzy: 84 }),
+      getTokenFieldScore(token, entry.companyTokens, { exact: 126, prefix: 104, contains: 78, fuzzy: 66 }),
+      getTokenFieldScore(token, entry.categoryTokens, { exact: 88, prefix: 74, contains: 58, fuzzy: 44 }),
+      getTokenFieldScore(token, entry.descriptionTokens, { exact: 36, prefix: 28, contains: 18, fuzzy: 14 }),
+      getInitialismScore(token, entry.nameInitialism, { exact: 114, prefix: 92, fuzzy: 76 }),
+      getInitialismScore(token, entry.companyInitialism, { exact: 100, prefix: 82, fuzzy: 68 })
+    );
+
+    if (tokenScore > 0) {
+      matchedTokens += 1;
+      score += tokenScore;
+      if (tokenScore <= 44) {
+        fuzzyMatches += 1;
+      }
     }
+  }
+
+  if (matchedTokens === 0) {
+    return {
+      score: -1,
+      matchedTokens: 0,
+      coverage: 0,
+      exactLike: false,
+    };
+  }
+
+  if (entry.normalizedName === normalizedQuery) {
+    score += 420;
+    exactLike = true;
+  } else if (entry.normalizedName.startsWith(normalizedQuery)) {
+    score += 260;
+    exactLike = true;
+  } else if (entry.normalizedCompany === normalizedQuery) {
+    score += 240;
+    exactLike = true;
+  } else if (entry.normalizedCompany.startsWith(normalizedQuery)) {
+    score += 190;
+    exactLike = true;
+  } else if (entry.normalizedCategory === normalizedQuery) {
+    score += 150;
+    exactLike = true;
+  } else if (entry.normalizedName.includes(normalizedQuery)) {
+    score += 130;
+  } else if (entry.normalizedCompany.includes(normalizedQuery)) {
+    score += 110;
+  } else if (entry.normalizedDescription.includes(normalizedQuery)) {
+    score += 60;
+  } else if (entry.searchText.includes(normalizedQuery)) {
+    score += 40;
+  }
+
+  if (compactQuery && (entry.nameInitialism === compactQuery || entry.companyInitialism === compactQuery)) {
+    score += 170;
+    exactLike = true;
   }
 
   if (entry.model.isTrending) {
@@ -116,7 +269,25 @@ const getSearchScore = (entry: IndexedModel, normalizedQuery: string, tokens: st
     score += 2;
   }
 
-  return score;
+  if (entry.model.downloads) {
+    score += Math.min(Math.log10(entry.model.downloads + 1) * 6, 24);
+  }
+
+  const coverage = matchedTokens / tokens.length;
+  score += matchedTokens * 22;
+  score += coverage * 80;
+  score -= fuzzyMatches * 6;
+
+  if (matchedTokens === tokens.length) {
+    score += 90;
+  }
+
+  return {
+    score,
+    matchedTokens,
+    coverage,
+    exactLike,
+  };
 };
 
 const ModelCard = memo(function ModelCard({
@@ -208,6 +379,10 @@ export default function Home() {
         const normalizedCompany = normalizeSearchValue(model.company);
         const normalizedCategory = normalizeSearchValue(model.category);
         const normalizedDescription = normalizeSearchValue(model.description);
+        const nameTokens = dedupeTokens(getSearchTokens(model.name));
+        const companyTokens = dedupeTokens(getSearchTokens(model.company));
+        const categoryTokens = dedupeTokens(getSearchTokens(model.category));
+        const descriptionTokens = dedupeTokens(getSearchTokens(model.description)).slice(0, 24);
 
         return {
           model,
@@ -216,6 +391,12 @@ export default function Home() {
           normalizedCompany,
           normalizedCategory,
           normalizedDescription,
+          nameTokens,
+          companyTokens,
+          categoryTokens,
+          descriptionTokens,
+          nameInitialism: getInitialism(nameTokens),
+          companyInitialism: getInitialism(companyTokens),
           searchText: normalizeSearchValue(
             [
               model.name,
@@ -263,35 +444,92 @@ export default function Home() {
       .map(({ company }) => company);
   }, [companies, companyOptions, deferredCompanySearch]);
 
-  const filteredModels = useMemo(() => {
+  const searchResults = useMemo<SearchResultSet>(() => {
     const normalizedQuery = normalizeSearchValue(deferredSearchQuery);
     const tokens = normalizedQuery ? normalizedQuery.split(/\s+/).filter(Boolean) : [];
-    const matches = indexedModels.flatMap((entry) => {
+    const filteredEntries = indexedModels.filter((entry) => {
       const matchesFilter =
         currentFilter === "all" ||
         entry.model.company === currentFilter ||
         (currentFilter === "open-source" && entry.model.openSource);
       const matchesCategory = categoryFilter === "all" || entry.model.category === categoryFilter;
 
-      if (!matchesFilter || !matchesCategory) {
-        return [];
-      }
-
-      const score = getSearchScore(entry, normalizedQuery, tokens);
-      if (tokens.length > 0 && score < 0) {
-        return [];
-      }
-
-      return [{ model: entry.model, score, index: entry.index }];
+      return matchesFilter && matchesCategory;
     });
 
     if (!tokens.length) {
-      return matches.map(({ model }) => model);
+      return {
+        models: filteredEntries.map((entry) => entry.model),
+        mode: "default",
+        topMatch: null,
+      };
     }
 
-    matches.sort((a, b) => b.score - a.score || a.index - b.index);
-    return matches.map(({ model }) => model);
+    const allMatches = filteredEntries.flatMap((entry) => {
+      const result = getSearchScore(entry, normalizedQuery, tokens);
+      if (result.score < 0) {
+        return [];
+      }
+
+      return [{ entry, ...result }];
+    });
+
+    if (!allMatches.length) {
+      return {
+        models: [],
+        mode: "closest",
+        topMatch: null,
+      };
+    }
+
+    allMatches.sort(
+      (a, b) =>
+        b.score - a.score ||
+        b.matchedTokens - a.matchedTokens ||
+        b.coverage - a.coverage ||
+        a.entry.index - b.entry.index
+    );
+
+    const minimumMatches =
+      tokens.length <= 2
+        ? 1
+        : Math.max(1, Math.ceil(tokens.length * 0.6));
+
+    const strongMatches = allMatches.filter(
+      (match) =>
+        match.exactLike ||
+        match.matchedTokens >= minimumMatches ||
+        match.coverage >= 0.75 ||
+        match.score >= 210
+    );
+
+    const matchesToUse = strongMatches.length ? strongMatches : allMatches;
+
+    return {
+      models: matchesToUse.map(({ entry }) => entry.model),
+      mode: strongMatches.length ? "ranked" : "closest",
+      topMatch: matchesToUse[0]?.entry.model ?? null,
+    };
   }, [indexedModels, deferredSearchQuery, currentFilter, categoryFilter]);
+
+  const filteredModels = searchResults.models;
+
+  const searchFeedback = useMemo(() => {
+    const trimmedQuery = deferredSearchQuery.trim();
+    if (!trimmedQuery) {
+      return null;
+    }
+
+    if (!filteredModels.length) {
+      return `No models matched "${trimmedQuery}".`;
+    }
+
+    if (searchResults.mode === "closest" && searchResults.topMatch) {
+      return `No strong exact matches for "${trimmedQuery}". Showing closest results, starting with ${searchResults.topMatch.name}.`;
+    }
+
+    return null;
+  }, [deferredSearchQuery, filteredModels.length, searchResults]);
 
   const { sortedReviews, reviewsByModel, modelStatsMap } = useMemo(() => {
     const nextSortedReviews = [...reviews].sort((a, b) => b.id - a.id);
@@ -854,6 +1092,11 @@ export default function Home() {
                     {categoryFilter !== "all" && <span className="ml-1">in {categoryFilter}</span>}
                     {currentFilter !== "all" && <span className="ml-1">from {currentFilter === "open-source" ? "Open Source" : currentFilter}</span>}
                   </div>
+                  {searchFeedback && (
+                    <div className="text-[#a8a49e] text-xs sm:text-sm">
+                      {searchFeedback}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
