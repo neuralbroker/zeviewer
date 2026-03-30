@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, memo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, memo, useRef, useDeferredValue } from "react";
 import { supabase, Review, UserModel } from "@/lib/supabase";
 import { aiModels, AIModel } from "@/data/models";
 import trendingModelsData from "@/data/trending_models.json";
@@ -30,9 +30,106 @@ const trendingModels: AIModel[] = (trendingModelsData as TrendingModel[]).map((m
   downloads: m.downloads,
 }));
 
-const ModelCard = memo(function ModelCard({ model, stats, onClick }: { model: AIModel; stats: { count: number; avg: number }; onClick: () => void }) {
+interface ModelStats {
+  count: number;
+  avg: number;
+}
+
+interface IndexedModel {
+  model: AIModel;
+  index: number;
+  searchText: string;
+  normalizedName: string;
+  normalizedCompany: string;
+  normalizedCategory: string;
+  normalizedDescription: string;
+}
+
+const normalizeSearchValue = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const getSearchTokens = (value: string) => normalizeSearchValue(value).split(/\s+/).filter(Boolean);
+
+const getSearchScore = (entry: IndexedModel, normalizedQuery: string, tokens: string[]) => {
+  if (!tokens.length) {
+    return 0;
+  }
+
+  let score = 0;
+
+  for (const token of tokens) {
+    let tokenScore = 0;
+
+    if (entry.normalizedName === token) {
+      tokenScore = 160;
+    } else if (entry.normalizedName.startsWith(token)) {
+      tokenScore = 120;
+    } else if (entry.normalizedCompany === token) {
+      tokenScore = 100;
+    } else if (entry.normalizedCompany.startsWith(token)) {
+      tokenScore = 90;
+    } else if (entry.normalizedCategory === token) {
+      tokenScore = 80;
+    } else if (entry.normalizedName.includes(token)) {
+      tokenScore = 65;
+    } else if (entry.normalizedCompany.includes(token)) {
+      tokenScore = 55;
+    } else if (entry.normalizedCategory.includes(token)) {
+      tokenScore = 40;
+    } else if (entry.normalizedDescription.includes(token)) {
+      tokenScore = 25;
+    } else if (entry.searchText.includes(token)) {
+      tokenScore = 15;
+    } else {
+      return -1;
+    }
+
+    score += tokenScore;
+  }
+
+  if (normalizedQuery) {
+    if (entry.normalizedName === normalizedQuery) {
+      score += 180;
+    } else if (entry.normalizedName.startsWith(normalizedQuery)) {
+      score += 100;
+    } else if (entry.normalizedCompany === normalizedQuery) {
+      score += 85;
+    } else if (entry.normalizedCompany.startsWith(normalizedQuery)) {
+      score += 70;
+    } else if (entry.searchText.includes(normalizedQuery)) {
+      score += 35;
+    }
+  }
+
+  if (entry.model.isTrending) {
+    score += 8;
+  }
+  if (entry.model.new) {
+    score += 4;
+  }
+  if (entry.model.openSource) {
+    score += 2;
+  }
+
+  return score;
+};
+
+const ModelCard = memo(function ModelCard({
+  model,
+  stats,
+  onSelect,
+}: {
+  model: AIModel;
+  stats: ModelStats;
+  onSelect: (modelId: number) => void;
+}) {
   return (
-    <div className="model-card reveal cursor-pointer" onClick={onClick}>
+    <div className="model-card cursor-pointer" onClick={() => onSelect(model.id)}>
       <div className="flex items-start justify-between mb-4">
         <div className="min-w-0 flex-1">
           <span className="badge badge-ai mb-2 inline-block">{model.category}</span>
@@ -87,8 +184,11 @@ export default function Home() {
   const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const getAllModels = useCallback(() => {
-    const userMapped = userModels.map((m) => ({
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const deferredCompanySearch = useDeferredValue(companySearch);
+
+  const allModels = useMemo(() => {
+    const userMapped: AIModel[] = userModels.map((m) => ({
       id: m.id,
       name: m.name,
       company: m.company,
@@ -101,44 +201,177 @@ export default function Home() {
     return [...aiModels, ...userMapped, ...trendingModels];
   }, [userModels]);
 
-  const getModelStats = (modelId: number) => {
-    const modelReviews = reviews.filter((r) => r.model_id === modelId);
-    const count = modelReviews.length;
-    const avg = count > 0 ? modelReviews.reduce((s, r) => s + r.rating, 0) / count : 0;
-    return { count, avg };
-  };
+  const indexedModels = useMemo<IndexedModel[]>(
+    () =>
+      allModels.map((model, index) => {
+        const normalizedName = normalizeSearchValue(model.name);
+        const normalizedCompany = normalizeSearchValue(model.company);
+        const normalizedCategory = normalizeSearchValue(model.category);
+        const normalizedDescription = normalizeSearchValue(model.description);
 
-  const loadData = async () => {
-    try {
-      const { data: reviewData } = await supabase.from("reviews").select("*").order("created_at", { ascending: false });
-      if (reviewData) setReviews(reviewData);
-    } catch (e) {
-      console.log("Reviews table not available");
-    }
-    try {
-      const { data: modelData } = await supabase.from("user_models").select("*").order("created_at", { ascending: false });
-      if (modelData) setUserModels(modelData);
-    } catch (e) {
-      console.log("User models table not available");
-    }
-  };
+        return {
+          model,
+          index,
+          normalizedName,
+          normalizedCompany,
+          normalizedCategory,
+          normalizedDescription,
+          searchText: normalizeSearchValue(
+            [
+              model.name,
+              model.company,
+              model.category,
+              model.description,
+              model.openSource ? "open source opensource oss" : "",
+              model.isTrending ? "trending popular" : "",
+              model.isUser ? "community user submitted" : "",
+            ].join(" ")
+          ),
+        };
+      }),
+    [allModels]
+  );
 
-  const checkAuth = async () => {
+  const modelLookup = useMemo<Map<number, AIModel>>(
+    () => new Map(allModels.map((model) => [model.id, model] as const)),
+    [allModels]
+  );
+  
+  const companies = useMemo(() => {
+    const unique = new Set(allModels.map((m) => m.company));
+    return Array.from(unique).sort();
+  }, [allModels]);
+
+  const categories = useMemo(() => {
+    const unique = new Set(allModels.map((m) => m.category));
+    return Array.from(unique).sort();
+  }, [allModels]);
+
+  const companyOptions = useMemo(
+    () => companies.map((company) => ({ company, normalized: normalizeSearchValue(company) })),
+    [companies]
+  );
+
+  const filteredCompanies = useMemo(() => {
+    const tokens = getSearchTokens(deferredCompanySearch);
+    if (!tokens.length) {
+      return companies;
+    }
+
+    return companyOptions
+      .filter(({ normalized }) => tokens.every((token) => normalized.includes(token)))
+      .map(({ company }) => company);
+  }, [companies, companyOptions, deferredCompanySearch]);
+
+  const filteredModels = useMemo(() => {
+    const normalizedQuery = normalizeSearchValue(deferredSearchQuery);
+    const tokens = normalizedQuery ? normalizedQuery.split(/\s+/).filter(Boolean) : [];
+    const matches = indexedModels.flatMap((entry) => {
+      const matchesFilter =
+        currentFilter === "all" ||
+        entry.model.company === currentFilter ||
+        (currentFilter === "open-source" && entry.model.openSource);
+      const matchesCategory = categoryFilter === "all" || entry.model.category === categoryFilter;
+
+      if (!matchesFilter || !matchesCategory) {
+        return [];
+      }
+
+      const score = getSearchScore(entry, normalizedQuery, tokens);
+      if (tokens.length > 0 && score < 0) {
+        return [];
+      }
+
+      return [{ model: entry.model, score, index: entry.index }];
+    });
+
+    if (!tokens.length) {
+      return matches.map(({ model }) => model);
+    }
+
+    matches.sort((a, b) => b.score - a.score || a.index - b.index);
+    return matches.map(({ model }) => model);
+  }, [indexedModels, deferredSearchQuery, currentFilter, categoryFilter]);
+
+  const { sortedReviews, reviewsByModel, modelStatsMap } = useMemo(() => {
+    const nextSortedReviews = [...reviews].sort((a, b) => b.id - a.id);
+    const nextReviewsByModel = new Map<number, Review[]>();
+    const totals = new Map<number, { count: number; sum: number }>();
+
+    for (const review of nextSortedReviews) {
+      const existingReviews = nextReviewsByModel.get(review.model_id);
+      if (existingReviews) {
+        existingReviews.push(review);
+      } else {
+        nextReviewsByModel.set(review.model_id, [review]);
+      }
+
+      const current = totals.get(review.model_id);
+      if (current) {
+        current.count += 1;
+        current.sum += review.rating;
+      } else {
+        totals.set(review.model_id, { count: 1, sum: review.rating });
+      }
+    }
+
+    const nextModelStatsMap: Record<number, ModelStats> = {};
+    totals.forEach(({ count, sum }, modelId) => {
+      nextModelStatsMap[modelId] = { count, avg: sum / count };
+    });
+
+    return {
+      sortedReviews: nextSortedReviews,
+      reviewsByModel: nextReviewsByModel,
+      modelStatsMap: nextModelStatsMap,
+    };
+  }, [reviews]);
+
+  const companiesCount = companies.length;
+  const categoriesCount = categories.length;
+
+  const loadData = useCallback(async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const [reviewsResponse, modelsResponse] = await Promise.all([
+        supabase.from("reviews").select("*").order("created_at", { ascending: false }),
+        supabase.from("user_models").select("*").order("created_at", { ascending: false }),
+      ]);
+
+      if (!reviewsResponse.error && reviewsResponse.data) {
+        setReviews(reviewsResponse.data);
+      } else {
+        console.log("Reviews table not available");
+      }
+
+      if (!modelsResponse.error && modelsResponse.data) {
+        setUserModels(modelsResponse.data);
+      } else {
+        console.log("User models table not available");
+      }
+    } catch (e) {
+      console.log("Data load error");
+    }
+  }, []);
+
+  const checkAuth = useCallback(async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (session?.user) {
         setCurrentUser(session.user);
       }
     } catch (e) {
       console.log("Auth error");
     }
-  };
+  }, []);
 
-useEffect(() => {
+  useEffect(() => {
     loadData();
     checkAuth();
-    setupScrollReveal();
-    
+  }, [loadData, checkAuth]);
+
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
@@ -155,14 +388,14 @@ useEffect(() => {
         setShowCompanyDropdown(false);
       }
     };
-    
+
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (!target.closest(".company-dropdown-container")) {
         setShowCompanyDropdown(false);
       }
     };
-    
+
     window.addEventListener("keydown", handleKeyDown);
     document.addEventListener("click", handleClickOutside);
     return () => {
@@ -171,74 +404,32 @@ useEffect(() => {
     };
   }, []);
 
-  const setupScrollReveal = () => {
+  useEffect(() => {
+    const elements = document.querySelectorAll(".reveal:not(.active)");
+    if (!elements.length) {
+      return;
+    }
+
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
             entry.target.classList.add("active");
+            observer.unobserve(entry.target);
           }
         });
       },
       { threshold: 0.1 }
     );
-    document.querySelectorAll(".reveal").forEach((el) => observer.observe(el));
-  };
+
+    elements.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [filteredModels, sortedReviews.length]);
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ show: true, message, type });
     setTimeout(() => setToast({ show: false, message: "", type: "success" }), 3000);
   };
-
-  const allModels = useMemo(() => getAllModels(), [userModels]);
-  
-  const companies = useMemo(() => {
-    const unique = new Set(allModels.map((m) => m.company));
-    return Array.from(unique).sort();
-  }, [allModels]);
-
-  const categories = useMemo(() => {
-    const unique = new Set(allModels.map((m) => m.category));
-    return Array.from(unique).sort();
-  }, [allModels]);
-
-  const filteredCompanies = useMemo(() => {
-    if (!companySearch) return companies;
-    return companies.filter((c) => c.toLowerCase().includes(companySearch.toLowerCase()));
-  }, [companies, companySearch]);
-
-  const filteredModels = useMemo(() => {
-    return allModels.filter((m) => {
-      const searchLower = searchQuery.toLowerCase();
-      const searchMatch =
-        !searchQuery ||
-        m.name.toLowerCase().includes(searchLower) ||
-        m.company.toLowerCase().includes(searchLower) ||
-        m.description.toLowerCase().includes(searchLower);
-      const filterMatch =
-        currentFilter === "all" ||
-        m.company === currentFilter ||
-        (currentFilter === "open-source" && m.openSource);
-      const categoryMatch =
-        categoryFilter === "all" ||
-        m.category === categoryFilter;
-      return searchMatch && filterMatch && categoryMatch;
-    });
-  }, [allModels, searchQuery, currentFilter, categoryFilter]);
-
-  const modelStatsMap = useMemo(() => {
-    const map: Record<number, { count: number; avg: number }> = {};
-    for (const model of allModels) {
-      const modelReviews = reviews.filter((r) => r.model_id === model.id);
-      const count = modelReviews.length;
-      const avg = count > 0 ? modelReviews.reduce((s, r) => s + r.rating, 0) / count : 0;
-      map[model.id] = { count, avg };
-    }
-    return map;
-  }, [allModels, reviews]);
-
-  const companiesCount = useMemo(() => new Set(allModels.map((m) => m.company)).size, [allModels]);
-  const categoriesCount = useMemo(() => new Set(allModels.map((m) => m.category)).size, [allModels]);
 
   const handleAuth = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -285,8 +476,7 @@ useEffect(() => {
       return;
     }
 
-    const allModels = getAllModels();
-    const model = allModels.find((m) => m.id === selectedModelId);
+    const model = selectedModelId ? modelLookup.get(selectedModelId) : null;
     if (!model) return;
 
     const reviewData = {
@@ -302,7 +492,7 @@ useEffect(() => {
     try {
       await supabase.from("reviews").insert(reviewData);
       showToast("Review submitted!");
-      setShowReviewModal(false);
+      closeReviewModal();
       loadData();
     } catch (error: any) {
       showToast("Error: " + error.message, "error");
@@ -336,46 +526,47 @@ useEffect(() => {
     }
   };
 
-  const openDetailModal = (modelId: number) => {
+  const openDetailModal = useCallback((modelId: number) => {
     setCurrentDetailModelId(modelId);
     setShowDetailModal(true);
     document.body.style.overflow = "hidden";
-  };
+  }, []);
 
-  const closeDetailModal = () => {
+  const closeDetailModal = useCallback(() => {
     setShowDetailModal(false);
     document.body.style.overflow = "";
-  };
+  }, []);
 
-  const openReviewModal = (modelId: number) => {
+  const openReviewModal = useCallback((modelId: number) => {
     setSelectedModelId(modelId);
     setShowReviewModal(true);
     setCurrentRating(0);
     document.body.style.overflow = "hidden";
-  };
+  }, []);
 
-  const closeReviewModal = () => {
+  const closeReviewModal = useCallback(() => {
     setShowReviewModal(false);
     document.body.style.overflow = "";
-  };
+  }, []);
 
-  const openAuthModal = (mode: "signin" | "signup") => {
+  const openAuthModal = useCallback((mode: "signin" | "signup") => {
     setAuthMode(mode);
     setAuthError("");
     setShowAuthModal(true);
-  };
+  }, []);
 
-  const closeAuthModal = () => {
+  const closeAuthModal = useCallback(() => {
     setShowAuthModal(false);
     document.body.style.overflow = "";
-  };
+  }, []);
 
-  const scrollToModels = () => {
+  const scrollToModels = useCallback(() => {
     document.getElementById("models")?.scrollIntoView({ behavior: "smooth" });
-  };
+  }, []);
 
-  const selectedModel = currentDetailModelId ? allModels.find((m) => m.id === currentDetailModelId) : null;
-  const modelReviews = currentDetailModelId ? reviews.filter((r) => r.model_id === currentDetailModelId) : [];
+  const selectedModel = currentDetailModelId ? modelLookup.get(currentDetailModelId) || null : null;
+  const reviewTargetModel = selectedModelId ? modelLookup.get(selectedModelId) || null : null;
+  const modelReviews = currentDetailModelId ? reviewsByModel.get(currentDetailModelId) || [] : [];
   const stats = currentDetailModelId ? modelStatsMap[currentDetailModelId] || { count: 0, avg: 0 } : { count: 0, avg: 0 };
 
   return (
@@ -672,7 +863,7 @@ useEffect(() => {
                   <ModelCard 
                     model={model} 
                     stats={modelStatsMap[model.id] || { count: 0, avg: 0 }} 
-                    onClick={() => openDetailModal(model.id)} 
+                    onSelect={openDetailModal} 
                   />
                 </div>
               ))}
@@ -692,7 +883,7 @@ useEffect(() => {
               {reviews.length === 0 ? (
                 <p className="text-[#a8a49e] text-center py-8">No reviews yet. Be the first!</p>
               ) : (
-                reviews.slice().sort((a, b) => b.id - a.id).map((review) => (
+                sortedReviews.map((review) => (
                   <div key={review.id} className="review-item">
                     <div className="flex justify-between items-start mb-3">
                       <div>
@@ -778,7 +969,7 @@ useEffect(() => {
               <div className="flex justify-between items-start mb-8">
                 <div>
                   <p className="text-[#a8a49e] text-sm mb-2">Submitting review for</p>
-                  <h2 className="text-2xl font-medium">{getAllModels().find((m) => m.id === selectedModelId)?.name}</h2>
+                  <h2 className="text-2xl font-medium">{reviewTargetModel?.name}</h2>
                 </div>
                 <button onClick={closeReviewModal} className="text-[#a8a49e] hover:text-[#f5f2eb]">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
