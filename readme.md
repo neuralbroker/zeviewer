@@ -1,18 +1,62 @@
 # Zeviewer - AI Model Review Platform
 
-**Zeviewer** is an open, community-driven platform for reviewing AI models. Browse, rate, and review the latest AI models from top companies like OpenAI, Google, Anthropic, Meta, DeepSeek, and many more.
+<p align="center">
+  <img src="https://zeviewer.com/favicon.svg" width="64" height="64" alt="Zeviewer Logo" />
+</p>
+
+<p align="center">
+  <strong>Open, community-driven AI model review platform.</strong>
+</p>
+
+<p align="center">
+  <a href="https://zeviewer.com">
+    <img src="https://img.shields.io/badge/Live-Demo-brightgreen?style=for-the-badge" alt="Live Demo" />
+  </a>
+  <a href="https://github.com/sajadkoder/zeviewer">
+    <img src="https://img.shields.io/github/stars/sajadkoder/zeviewer?style=for-the-badge" alt="Stars" />
+  </a>
+  <a href="https://github.com/sajadkoder/zeviewer/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/sajadkoder/zeviewer?style=for-the-badge" alt="License" />
+  </a>
+</p>
+
+---
+
+## About
+
+**Zeviewer** is an open, community-driven platform for reviewing AI models. Browse, rate, and review the latest AI models from top companies like OpenAI, Google DeepMind, Anthropic, Meta, DeepSeek, Mistral, and many more.
+
+With **1000+ AI models** including curated major models and trending models from HuggingFace, users can:
+- Discover and compare AI models
+- Read and write honest reviews
+- Add new models to the database
+- Filter by company or category
+- Search with fuzzy matching and typo tolerance
 
 ---
 
 ## Features
 
-- **Browse 1000+ AI Models** - Language, Multimodal, Reasoning, Image, Video, Audio, Code
-- **Write Reviews** - Rate models 1-5 stars and share your experience
-- **Add Models** - Submit new AI models to the database
-- **Open Source Models** - Filter and discover open source models
-- **Community Submissions** - User-submitted models marked as "COMMUNITY"
-- **User Authentication** - Sign up/sign in with email and password
-- **Privacy Policy & Terms of Service** - Legal pages included
+### Core Features
+- **1000+ AI Models** - Curated models (GPT-5, Claude 4, Gemini 3) + trending from HuggingFace
+- **Company-Based Filtering** - Filter by company (OpenAI, Anthropic, Meta, DeepSeek, etc.)
+- **Category Filtering** - Filter by type (language, multimodal, reasoning, image, video, audio, code)
+- **Smart Search** - Fuzzy search with typo tolerance, supports name, company, or description
+- **Reviews & Ratings** - Star ratings with detailed review text
+- **Add New Models** - Community-submitted models
+
+### User Features
+- **Authentication** - Sign up/sign in via Supabase Auth
+- **Community Models** - User-submitted models marked as "COMMUNITY"
+- **Open Source Badge** - Highlight open source models
+- **Trending Badge** - Show trending models from HuggingFace
+- **Responsive Design** - Works on mobile, tablet, and desktop
+
+### Technical Features
+- **Static Export** - Blazing fast page loads (~77KB bundle)
+- **SEO Optimized** - Meta tags, sitemap, robots.txt, Open Graph, Twitter Cards
+- **TypeScript** - Full type safety
+- **TailwindCSS** - Utility-first styling
 
 ---
 
@@ -20,7 +64,7 @@
 
 | Layer | Technology |
 |-------|------------|
-| Framework | Next.js 14 |
+| Framework | Next.js 14 (App Router) |
 | Language | TypeScript |
 | Styling | TailwindCSS |
 | Backend | Supabase (PostgreSQL) |
@@ -31,20 +75,31 @@
 
 ## Quick Start
 
-### 1. Clone
+### Prerequisites
+- Node.js 18+
+- npm or yarn
+
+### Installation
 
 ```bash
+# Clone the repository
 git clone https://github.com/sajadkoder/zeviewer.git
 cd zeviewer
-```
 
-### 2. Install Dependencies
-
-```bash
+# Install dependencies
 npm install
 ```
 
-### 3. Configure Supabase
+### Environment Variables
+
+Create a `.env.local` file:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+```
+
+### Database Setup
 
 1. Create a project at [supabase.com](https://supabase.com)
 2. Go to **SQL Editor** and run:
@@ -76,43 +131,36 @@ CREATE TABLE user_models (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Enable RLS
+-- Enable Row Level Security
 ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_models ENABLE ROW LEVEL SECURITY;
 
--- Read policies (anyone can read)
+-- Create policies (anyone can read)
 CREATE POLICY "Public read reviews" ON reviews FOR SELECT USING (true);
 CREATE POLICY "Public read user_models" ON user_models FOR SELECT USING (true);
 
--- Write policies (authenticated users only)
+-- Create policies (authenticated users can write)
 CREATE POLICY "Auth insert reviews" ON reviews FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 CREATE POLICY "Auth insert user_models" ON user_models FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 ```
 
-3. Go to **Authentication → Providers** and enable **Email**
+3. Enable **Email** provider in **Authentication → Providers**
 
-### 4. Configure Environment
-
-Create `.env.local`:
-
-```env
-NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
-NEXT_PUBLIC_SUPABASE_KEY=your-anon-key
-```
-
-### 5. Run Development Server
+### Development
 
 ```bash
 npm run dev
 ```
 
-### 6. Build for Production
+Open [http://localhost:3000](http://localhost:3000)
+
+### Build for Production
 
 ```bash
 npm run build
 ```
 
-Output will be in the `out/` directory, ready for static hosting.
+Output will be in the `out/` directory.
 
 ---
 
@@ -121,7 +169,10 @@ Output will be in the `out/` directory, ready for static hosting.
 ### Vercel (Recommended)
 
 ```bash
+# Install Vercel CLI
 npm i -g vercel
+
+# Deploy
 vercel --prod
 ```
 
@@ -131,8 +182,26 @@ Or connect your GitHub repository to Vercel for automatic deployments.
 
 ```bash
 npm run build
-# Deploy the out/ folder
+# Deploy the out/ folder to Netlify
 ```
+
+### Cloudflare Pages
+
+1. Connect your repository to Cloudflare Pages
+2. Build command: `npm run build`
+3. Output directory: `out`
+
+---
+
+## Updating Trending Models
+
+To fetch the latest trending models from HuggingFace:
+
+```bash
+py scripts/fetch_models.py
+```
+
+This updates `src/data/trending_models.json` with fresh data. Commit and push to update your deployed site.
 
 ---
 
@@ -140,72 +209,96 @@ npm run build
 
 ```
 zeviewer/
+├── public/
+│   ├── favicon.svg         # Site favicon
+│   ├── robots.txt          # Search engine directives
+│   └── sitemap.xml         # SEO sitemap
 ├── src/
 │   ├── app/
-│   │   ├── page.tsx              # Main page
-│   │   ├── layout.tsx            # Root layout
-│   │   ├── loading.tsx          # Loading state
-│   │   ├── globals.css           # Global styles
-│   │   ├── privacy-policy/       # Privacy Policy page
-│   │   └── terms-of-service/     # Terms of Service page
+│   │   ├── page.tsx        # Main page with all components
+│   │   ├── layout.tsx      # Root layout with metadata
+│   │   ├── loading.tsx     # Loading state
+│   │   ├── globals.css     # Global styles
+│   │   ├── privacy-policy/ # Privacy Policy page
+│   │   └── terms-of-service/ # Terms of Service page
 │   ├── data/
-│   │   └── models.ts             # 1000+ AI models data
+│   │   ├── models.ts       # Curated AI models (1000+)
+│   │   └── trending_models.json # Trending from HuggingFace
 │   └── lib/
-│       └── supabase.ts           # Supabase client
-├── public/
-│   ├── sitemap.xml               # SEO sitemap
-│   └── robots.txt                # Search engine directives
-├── next.config.js                # Next.js configuration
-├── tailwind.config.js            # Tailwind configuration
-├── package.json                  # Dependencies
-└── README.md                     # This file
+│       └── supabase.ts     # Supabase client
+├── scripts/
+│   └── fetch_models.py     # Script to fetch HF trending models
+├── next.config.js          # Next.js configuration
+├── tailwind.config.js      # Tailwind configuration
+├── tsconfig.json           # TypeScript configuration
+├── package.json            # Dependencies
+└── README.md               # This file
 ```
-
----
-
-## How It Works
-
-### For Users
-1. Browse 1000+ AI models on the homepage
-2. Filter by category or search for specific models
-3. Click any model to see details and reviews
-4. Sign in to write reviews or add new models
-5. All reviews are visible to everyone
-
-### For Developers
-- Built with Next.js 14 App Router
-- Static export for fast performance
-- All data stored in Supabase
-- Reviews and models synced across all users
-- Authentication via Supabase Auth
 
 ---
 
 ## AI Models Included
 
-The database includes 1000+ AI models up to February 2026:
-
-- **OpenAI**: GPT-5 series, Claude 4, DALL-E 4, Sora, Whisper
-- **Anthropic**: Claude 4 Opus, Claude 4 Sonnet, Claude 3.5
-- **Google**: Gemini 3, Gemma 3, Imagen 4, Veo 3, Whisper
+### Curated Models (Major AI Labs)
+- **OpenAI**: GPT-5.3, GPT-5 Codex, o3-mini, o4-mini, GPT-4o, DALL-E 4, Sora, Whisper V4
+- **Anthropic**: Claude Opus 4.6, Claude 4 Sonnet, Claude Code, Claude Enterprise
+- **Google DeepMind**: Gemini 3 Ultra, Gemini 3 Pro, Gemini 3 Flash, Gemma 3, Imagen 4, Veo 3
 - **Meta**: Llama 4, Code Llama, MusicGen, Segment Anything
 - **DeepSeek**: V3, R2, R1, Janus-Pro
-- **Chinese Models**: ByteDance, Tencent, Baidu, Zhipu, Moonshot, Qwen
-- **Open Source**: Mistral, OLMo, Falcon, Stable Diffusion, and more
+- **Mistral AI**: Mistral Large, Codestral, Mixtral
+- **xAI**: Grok-2, Grok-2 Vision
+
+### Trending from HuggingFace
+- **200 trending models** - Mix of recently updated and most popular
+- Filtered to remove small/unuseful models
+
+### Categories
+- Language Models
+- Multimodal Models
+- Reasoning Models
+- Image Generation
+- Video Generation
+- Audio/Speech
+- Code Generation
+- Open Source Models
+
+---
+
+## Known Issues Fixed
+
+- Syntax error in page.tsx causing Vercel build failure (missing `</div>`)
+- Hardcoded Supabase credentials (now uses environment variables)
+- Missing SEO meta tags (added Open Graph, Twitter Cards)
+- Missing sitemap.xml and robots.txt
+- Missing favicon
+
+---
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ---
 
 ## License
 
-MIT License - Feel free to use and modify.
+MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
 ## Support
 
-- Open an issue on GitHub
-- Or contact the maintainer
+- Open an [issue](https://github.com/sajadkoder/zeviewer/issues) on GitHub
+- Star this repository if you found it useful!
 
 ---
 
-**Built with Next.js, TailwindCSS, and Supabase**
+<p align="center">
+  Built with ❤️ for the AI community
+</p>

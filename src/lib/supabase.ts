@@ -1,9 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://bwinbwgasszkbqgjstpn.supabase.co';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ3aW5id2dhc3N6a2JxZ2pzdHBuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MjE4NzcsImV4cCI6MjA4NjQ5Nzg3N30.sYQRTBIOvwNsiZ-NT0GPRiYd7j2k1oNns2m7PkXO97Q';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+if (!supabaseUrl || !supabaseKey) {
+  console.warn('Missing Supabase environment variables. Some features may not work.');
+}
+
+export const supabase = createClient(supabaseUrl || '', supabaseKey || '');
 
 export interface Review {
   id: number;
