@@ -1,22 +1,56 @@
 # Zeviewer
 
-AI model reviews. Public. No login required.
+AI model reviews. Public. No login required for reading. Users can write reviews after signing in.
 
-## Why
+---
 
-No good place to see what actually works and what does not.
-This is that place.
+## Tech Stack
 
-## Install
+- **Framework**: Next.js 14 (App Router, static export)
+- **Language**: TypeScript
+- **Styling**: TailwindCSS
+- **Database**: Supabase (PostgreSQL)
+- **Auth**: Supabase Auth (email/password)
+- **Models data**: Curated list + HuggingFace trending (auto-updated via script)
 
-```
+---
+
+## Features
+
+- 1100+ AI models (900 curated, 200 from HuggingFace)
+- Filter by company (OpenAI, Anthropic, Meta, DeepSeek, etc.)
+- Filter by category (language, multimodal, reasoning, image, video, audio, code)
+- Fuzzy search with typo tolerance
+- Star ratings (1-5) with written reviews
+- Community-submitted models
+- Open source badges on models
+- Responsive design for mobile and desktop
+
+---
+
+## Prerequisites
+
+- Node.js 18 or later
+- Python 3.8+ (for running the model update script)
+- A Supabase project (free tier works)
+
+---
+
+## Installation
+
+```bash
 git clone https://github.com/neuralbroker/zeviewer.git
 cd zeviewer
 npm install
 ```
 
-You need Supabase. Create project at supabase.com.
-Run this SQL:
+---
+
+## Database Setup
+
+1. Create a project at [supabase.com](https://supabase.com)
+
+2. Go to **SQL Editor** and run:
 
 ```sql
 CREATE TABLE reviews (
@@ -46,47 +80,98 @@ CREATE TABLE user_models (
 ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_models ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY p ON reviews FOR SELECT USING (true);
-CREATE POLICY p ON user_models FOR SELECT USING (true);
-CREATE POLICY p ON reviews FOR INSERT WITH CHECK (auth.role() = 'authenticated');
-CREATE POLICY p ON user_models FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY reviews_read ON reviews FOR SELECT USING (true);
+CREATE POLICY reviews_insert ON reviews FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY user_models_read ON user_models FOR SELECT USING (true);
+CREATE POLICY user_models_insert ON user_models FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 ```
 
-Create `.env.local`:
-```
-NEXT_PUBLIC_SUPABASE_URL=<your-url>
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-key>
-```
+3. Enable **Email** provider in **Authentication -> Providers**
 
-## Run
+---
 
-```
+## Environment Variables
+
+Create a `.env.local` file in the project root:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL | `https://xxxxx.supabase.co` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous (public) key | `eyJhbGciOi...` |
+
+Find these in Supabase under **Settings -> API**.
+
+---
+
+## Usage
+
+### Development
+
+```bash
 npm run dev
 ```
 
-## Build
+Open [http://localhost:3000](http://localhost:3000)
 
-```
+### Production build
+
+```bash
 npm run build
 ```
 
-Static output goes to `out/`.
+Output goes to `out/` as static files. Deploy this folder to Vercel, Netlify, or any static host.
 
-## Update trending models
+### Update trending models from HuggingFace
 
-```
+```bash
 py scripts/fetch_models.py
-git add src/data/trending_models.json && git commit && git push
+git add src/data/trending_models.json
+git commit -m 'Update trending models'
+git push
 ```
 
-## What this is
+---
 
-Next.js 14 static export.
-Supabase for auth and storage.
-TailwindCSS.
-1100+ models: 900 curated + 200 from HuggingFace.
-Company and category filtering.
-Fuzzy search.
+## Project Structure
+
+```
+zeviewer/
+├── public/                  # Static files served as-is
+│   ├── favicon.svg          # Site icon
+│   ├── robots.txt           # Search engine directives
+│   └── sitemap.xml          # SEO sitemap
+├── src/
+│   ├── app/                 # Next.js pages and layouts
+│   │   ├── page.tsx         # Main page (all components in one file)
+│   │   ├── layout.tsx       # Root layout with metadata
+│   │   ├── loading.tsx      # Loading skeleton
+│   │   ├── globals.css      # Global styles and animations
+│   │   ├── privacy-policy/  # Privacy Policy page
+│   │   └── terms-of-service/# Terms of Service page
+│   ├── data/                # Static model data
+│   │   ├── models.ts        # 900 curated AI models
+│   │   └── trending_models.json # 200 trending from HuggingFace
+│   └── lib/
+│       └── supabase.ts      # Supabase client setup
+├── scripts/
+│   └── fetch_models.py      # Fetches trending models from HuggingFace
+├── next.config.js           # Next.js configuration (static export)
+├── tailwind.config.js       # TailwindCSS configuration
+├── tsconfig.json            # TypeScript configuration
+└── package.json             # Dependencies and scripts
+```
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create a branch: `git checkout -b fix/something`
+3. Make your changes
+4. Test with `npm run build`
+5. Push and open a pull request
+
+---
 
 ## License
 
