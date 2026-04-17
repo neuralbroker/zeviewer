@@ -12,11 +12,11 @@
   <a href="https://zeviewer.com">
     <img src="https://img.shields.io/badge/Live-Demo-brightgreen?style=for-the-badge" alt="Live Demo" />
   </a>
-  <a href="https://github.com/sajadkoder/zeviewer">
-    <img src="https://img.shields.io/github/stars/sajadkoder/zeviewer?style=for-the-badge" alt="Stars" />
+  <a href="https://github.com/neuralbroker/zeviewer">
+    <img src="https://img.shields.io/github/stars/neuralbroker/zeviewer?style=for-the-badge" alt="Stars" />
   </a>
-  <a href="https://github.com/sajadkoder/zeviewer/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/sajadkoder/zeviewer?style=for-the-badge" alt="License" />
+  <a href="https://github.com/neuralbroker/zeviewer/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/neuralbroker/zeviewer?style=for-the-badge" alt="License" />
   </a>
 </p>
 
@@ -83,7 +83,7 @@ With **1000+ AI models** including curated major models and trending models from
 
 ```bash
 # Clone the repository
-git clone https://github.com/sajadkoder/zeviewer.git
+git clone https://github.com/neuralbroker/zeviewer.git
 cd zeviewer
 
 # Install dependencies
@@ -294,7 +294,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Support
 
-- Open an [issue](https://github.com/sajadkoder/zeviewer/issues) on GitHub
+- Open an [issue](https://github.com/neuralbroker/zeviewer/issues) on GitHub
 - Star this repository if you found it useful!
 
 ---
